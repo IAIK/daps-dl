@@ -606,6 +606,8 @@ int ossl_ecdsa_verify(int type, const unsigned char *dgst, int dgst_len,
                       const unsigned char *sigbuf, int sig_len, EC_KEY *eckey);
 int ossl_ecdsa_verify_sig(const unsigned char *dgst, int dgst_len,
                           const ECDSA_SIG *sig, EC_KEY *eckey);
+int ossl_ecdsa_verify_sig_ex(const unsigned char *dgst, int dgst_len,
+                             const ECDSA_SIG *sig, EC_KEY *eckey, EC_POINT** R);
 
 int X25519(uint8_t out_shared_key[32], const uint8_t private_key[32],
            const uint8_t peer_public_value[32]);

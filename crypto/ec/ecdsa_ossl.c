@@ -341,8 +341,8 @@ int ossl_ecdsa_verify(int type, const unsigned char *dgst, int dgst_len,
     return (ret);
 }
 
-int ossl_ecdsa_verify_sig(const unsigned char *dgst, int dgst_len,
-                          const ECDSA_SIG *sig, EC_KEY *eckey)
+int ossl_ecdsa_verify_sig_ex(const unsigned char *dgst, int dgst_len,
+                             const ECDSA_SIG *sig, EC_KEY *eckey, EC_POINT** R)
 {
     int ret = -1, i;
     BN_CTX *ctx;
@@ -454,9 +454,21 @@ int ossl_ecdsa_verify_sig(const unsigned char *dgst, int dgst_len,
     }
     /*  if the signature is correct u1 is equal to sig->r */
     ret = (BN_ucmp(u1, sig->r) == 0);
+
+    if (R) {
+      *R = point;
+      point = NULL;
+    }
  err:
     BN_CTX_end(ctx);
     BN_CTX_free(ctx);
     EC_POINT_free(point);
     return ret;
 }
+
+int ossl_ecdsa_verify_sig(const unsigned char *dgst, int dgst_len,
+                          const ECDSA_SIG *sig, EC_KEY *eckey)
+{
+  return ossl_ecdsa_verify_sig_ex(dgst, dgst_len, sig, eckey, NULL);
+}
+

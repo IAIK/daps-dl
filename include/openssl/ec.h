@@ -1574,6 +1574,19 @@ int ERR_load_EC_strings(void);
 # define EC_R_WRONG_CURVE_PARAMETERS                      145
 # define EC_R_WRONG_ORDER                                 130
 
+typedef struct daps_key_st DAPS_KEY;
+typedef struct daps_sig_st DAPS_SIG;
+
+DAPS_KEY* ecdsa_daps_key_new(int cid, int n);
+void ecdsa_daps_key_free(DAPS_KEY* key);
+int ecdsa_daps_key_gen(DAPS_KEY* key);
+
+DAPS_SIG* DAPS_SIG_new(void);
+void DAPS_SIG_free(DAPS_SIG* sig);
+
+DAPS_SIG* ecdsa_daps_do_sign(int a, const unsigned char* payload, unsigned int plen, DAPS_KEY *dapskey);
+int ecdsa_daps_do_verify(int a, const unsigned char* payload, unsigned int plen, DAPS_KEY *dapskey, DAPS_SIG* sig);
+
 #  ifdef  __cplusplus
 }
 #  endif
