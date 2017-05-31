@@ -27,6 +27,7 @@
 #define RSA_SECONDS             10
 #define DSA_SECONDS             10
 #define ECDSA_SECONDS   10
+#define DAPS_SECONDS    30
 #define ECDH_SECONDS    10
 
 #include <stdio.h>
@@ -165,6 +166,8 @@ typedef struct loopargs_st {
     EC_KEY *ecdsa[EC_NUM];
     EC_KEY *ecdh_a[EC_NUM];
     EC_KEY *ecdh_b[EC_NUM];
+    DAPS_KEY* daps;
+    DAPS_SIG* daps_sig;
     unsigned char *secret_a;
     unsigned char *secret_b;
     size_t      outlen;
@@ -226,6 +229,12 @@ static int DSA_verify_loop(void *args);
 static int ECDSA_sign_loop(void *args);
 static int ECDSA_verify_loop(void *args);
 static int ECDH_compute_key_loop(void *args);
+static int daps_sign_loop(void* args);
+static int daps_verify_loop(void* args);
+
+static unsigned char daps_address[] = "test address";
+static unsigned char daps_message[] = "test message";
+
 #endif
 static int run_benchmark(int async_jobs, int (*loop_function)(void *), loopargs_t *loopargs);
 
@@ -262,6 +271,7 @@ static double dsa_results[DSA_NUM][2];
 #endif
 #ifndef OPENSSL_NO_EC
 static double ecdsa_results[EC_NUM][2];
+static double daps_results[2];
 static double ecdh_results[EC_NUM][1];
 #endif
 
@@ -994,6 +1004,42 @@ static int DSA_verify_loop(void *args)
 #endif
 
 #ifndef OPENSSL_NO_EC
+static int daps_sign_loop(void *args)
+{
+    loopargs_t *tempargs = *(loopargs_t **)args;
+    DAPS_KEY* key = tempargs->daps;
+    int count;
+    for (count = 0; COND(ecdsa_c[testnum][0]); count++) {
+        DAPS_SIG* sig = ecdsa_daps_do_sign(0, daps_message, sizeof(daps_message), key);
+        if (!sig) {
+            BIO_printf(bio_err, "DAPS sign failure\n");
+            ERR_print_errors(bio_err);
+            count = -1;
+            break;
+        }
+        DAPS_SIG_free(sig);
+    }
+    return count;
+}
+
+static int daps_verify_loop(void *args)
+{
+    loopargs_t *tempargs = *(loopargs_t **)args;
+    DAPS_KEY* key = tempargs->daps;
+    DAPS_SIG* sig = tempargs->daps_sig;
+    int ret, count;
+    for (count = 0; COND(ecdsa_c[testnum][1]); count++) {
+        ret = ecdsa_daps_do_verify(0, daps_message, sizeof(daps_message), key, sig);
+        if (ret != 1) {
+            BIO_printf(bio_err, "DAPS verify failure\n");
+            ERR_print_errors(bio_err);
+            count = -1;
+            break;
+        }
+    }
+    return count;
+}
+
 static long ecdsa_c[EC_NUM][2];
 static int ECDSA_sign_loop(void *args)
 {
@@ -1360,6 +1406,7 @@ int speed_main(int argc, char **argv)
 
     int ecdsa_doit[EC_NUM] = { 0 };
     int ecdh_doit[EC_NUM] = { 0 };
+    int daps_doit = 0;
 #endif                          /* ndef OPENSSL_NO_EC */
 
     prog = opt_init(argc, argv, speed_options);
@@ -1518,6 +1565,10 @@ int speed_main(int argc, char **argv)
         if (found(*argv, ecdh_choices, &i)) {
             ecdh_doit[i] = 2;
             continue;
+        }
+        if (strcmp(*argv, "daps") == 0) {
+          daps_doit = 1;
+          continue;
         }
 #endif
         BIO_printf(bio_err, "%s: Unknown algorithm %s\n", prog, *argv);
@@ -2467,6 +2518,85 @@ int speed_main(int argc, char **argv)
     if (RAND_status() != 1) {
         RAND_seed(rnd_seed, sizeof rnd_seed);
     }
+
+    if (daps_doit) {
+      int st = 1;
+
+      for (i = 0; i < loopargs_len; ++i) {
+        loopargs[i].daps = ecdsa_daps_key_new(NID_X9_62_prime256v1, 1);
+        loopargs[i].daps_sig = NULL;
+        if (!loopargs[i].daps) {
+          st = 0;
+          break;
+        }
+      }
+
+      if (st != 1) {
+        BIO_printf(bio_err, "DAPS failure.\n");
+        ERR_print_errors(bio_err);
+      } else {
+        for (i = 0; i < loopargs_len; i++) {
+          st = ecdsa_daps_key_gen(loopargs[i].daps);
+          if (st != 1) {
+            break;
+          }
+
+          DAPS_SIG* sig = ecdsa_daps_do_sign(0, daps_message, sizeof(daps_message), loopargs[i].daps);
+          if (!sig) {
+            break;
+          }
+
+          st = ecdsa_daps_do_verify(0, daps_message, sizeof(daps_message), loopargs[i].daps, sig);
+          loopargs[i].daps_sig= sig;
+          if (st != 1) {
+            break;
+          }
+        }
+      }
+
+      if (st != 1) {
+        BIO_printf(bio_err,
+                   "DAPS sign/verify failure. No DAPS sign/verify will be done.\n");
+        ERR_print_errors(bio_err);
+      } else {
+        pkey_print_message("sign", "daps",
+                             ecdsa_c[0000000][0],
+                             128, DAPS_SECONDS);
+        Time_F(START);
+        count = run_benchmark(async_jobs, daps_sign_loop, loopargs);
+        d = Time_F(STOP);
+
+          BIO_printf(bio_err,
+                     mr ? "+R5:%ld:%d:%.2f\n" :
+                     "%ld %d bit ECDSA signs in %.2fs \n",
+                     count, 128, d);
+          daps_results[0] = d / (double)count;
+
+
+        pkey_print_message("verify", "daps",
+                             ecdsa_c[0000000][0],
+                             128, DAPS_SECONDS);
+        Time_F(START);
+        count = run_benchmark(async_jobs, daps_verify_loop, loopargs);
+        d = Time_F(STOP);
+
+          BIO_printf(bio_err,
+                     mr ? "+R5:%ld:%d:%.2f\n" :
+                     "%ld %d bit ECDSA verify in %.2fs \n",
+                     count, 128, d);
+          daps_results[1] = d / (double)count;
+
+
+        for (i = 0; i < loopargs_len; ++i) {
+          DAPS_SIG_free(loopargs[i].daps_sig);
+          ecdsa_daps_key_free(loopargs[i].daps);
+        }
+      }
+    }
+
+    if (RAND_status() != 1) {
+        RAND_seed(rnd_seed, sizeof rnd_seed);
+    }
     for (testnum = 0; testnum < EC_NUM; testnum++) {
         int st = 1;
 
@@ -2736,6 +2866,25 @@ int speed_main(int argc, char **argv)
     }
 #endif
 #ifndef OPENSSL_NO_EC
+    if (daps_doit) {
+        if (!mr) {
+            printf("%30ssign    verify    sign/s verify/s\n", " ");
+        }
+
+        if (mr)
+            printf("+F4:%u:%u:%f:%f\n",
+                   0, 128,
+                   daps_results[0], daps_results[1]);
+        else
+            printf("%4u bit daps (%s) %8.4fs %8.4fs %8.1f %8.1f\n",
+                   128,
+                   "ECDSA-DAPS",
+                   daps_results[0], daps_results[1],
+                   1.0 / daps_results[0], 1.0 / daps_results[1]);
+
+    }
+
+
     testnum = 1;
     for (k = 0; k < EC_NUM; k++) {
         if (!ecdsa_doit[k])
